@@ -1,0 +1,606 @@
+
+# """
+# Author: Yonglong Tian (yonglong@mit.edu)
+# Date: May 07, 2020
+# """
+# from __future__ import print_function
+#
+# import torch
+# import torch.nn as nn
+# import torch.nn.functional as F
+#
+#
+# class SupConLoss(nn.Module):
+#     """Supervised Contrastive Learning: https://arxiv.org/pdf/2004.11362.pdf.
+#     It also supports the unsupervised contrastive loss in SimCLR"""
+#     def __init__(self, temperature=0.07, contrast_mode='all',
+#                  base_temperature=0.07):
+#         super(SupConLoss, self).__init__()
+#         self.temperature = temperature
+#         self.contrast_mode = contrast_mode
+#         self.base_temperature = base_temperature
+#
+#     def forward(self, features, labels=None, mask=None):
+#         """Compute loss for model. If both `labels` and `mask` are None,
+#         it degenerates to SimCLR unsupervised loss:
+#         https://arxiv.org/pdf/2002.05709.pdf
+#
+#         Args:
+#             features: hidden vector of shape [bsz, n_views, ...].
+#             labels: ground truth of shape [bsz].
+#             mask: contrastive mask of shape [bsz, bsz], mask_{i,j}=1 if sample j
+#                 has the same class as sample i. Can be asymmetric.
+#         Returns:
+#             A loss scalar.
+#         """
+#         device = (torch.device('cuda')
+#                   if features.is_cuda
+#                   else torch.device('cpu'))
+#
+#         if len(features.shape) < 3:
+#             raise ValueError('`features` needs to be [bsz, n_views, ...],'
+#                              'at least 3 dimensions are required')
+#         if len(features.shape) > 3:
+#             features = features.view(features.shape[0], features.shape[1], -1)
+#
+#         batch_size = features.shape[0]
+#         if labels is not None and mask is not None:
+#             raise ValueError('Cannot define both `labels` and `mask`')
+#         elif labels is None and mask is None:
+#             mask = torch.eye(batch_size, dtype=torch.float64).to(device)
+#         elif labels is not None:
+#             labels = labels.contiguous().view(-1, 1)
+#             if labels.shape[0] != batch_size:
+#                 raise ValueError('Num of labels does not match num of features')
+#             mask = torch.eq(labels, labels.T).float().to(device)
+#         else:
+#             mask = mask.float().to(device)
+#
+#         # ### 计算同一张图片增强后差值向量的l2范数
+#         # # print(features.shape)
+#         # # print(features)
+#         # features_c_192,features_s_64=torch.split(features,[192,64],dim=2)
+#         # # print(features_c_192[:,0,:]-features_c_192[:,1,:])
+#         # # print(torch.norm(features_c_192[:, 0, :] - features_c_192[:, 1, :],dim=1))
+#         # # print(torch.sum(torch.norm(features_c_192[:, 0, :] - features_c_192[:, 1, :],dim=1))/len(torch.norm(features_c_192[:, 0, :] - features_c_192[:, 1, :],dim=1)))
+#         # # loss_c_192=torch.sum(torch.norm(features_c_192[:, 0, :] - features_c_192[:, 1, :],dim=1))/len(torch.norm(features_c_192[:, 0, :] - features_c_192[:, 1, :],dim=1))
+#         # # print(loss_c_192)
+#         # loss_s_64=-torch.sum(torch.norm(features_s_64[:, 0, :] - features_s_64[:, 1, :],dim=1))/len(torch.norm(features_s_64[:, 0, :] - features_s_64[:, 1, :],dim=1))
+#         # loss_s_64*=0.007
+#         # # print(loss_c_192,loss_s_64)
+#         # # print(loss_s_64)
+#         # # print("***",torch.norm(features_s_64[:,0,:]))
+#         # # loss_c_s=loss_c_192/loss_s_64
+#         # # print("###",loss_c_s)
+#         # # print(features_c_192.shape)
+#         #
+#         # ###k
+#         # ### 仅对公共部分计算SCL
+#         # features=features_c_192
+#         #
+#         # # print(features.shape)
+#         # # input()
+#         #
+#         # # torch.norm()
+#         # # print(features_c_192,features_s_64)
+#         # # print(features_c_192.shape,features_s_64.shape)
+#         # # input()
+#
+#         # ### 不切分计算同一张图片增强后差值向量的l2范数
+#         # # print(features.shape)
+#         # # print(features)
+#         # # features_c_192,features_s_64=torch.split(features,[192,64],dim=2)
+#         # loss_c_192=torch.sum(torch.norm(features[:, 0, :] - features[:, 1, :],dim=1))/len(torch.norm(features[:, 0, :] - features[:, 1, :],dim=1))
+#         # sum_loss_128=loss_c_192
+#         #
+#         # print("sum_loss_128:", sum_loss_128)
+#         # # ###k
+#         # # ### 仅对公共部分计算SCL
+#         # # features=features_s_64
+#         #
+#         # # print(features.shape)
+#         # # input()
+#         #
+#         # # torch.norm()
+#         # # print(features,features_s_64)
+#         # # print(features.shape,features_s_64.shape)
+#         # # input()
+#
+#
+#
+#
+#         contrast_count = features.shape[1]
+#         contrast_feature = torch.cat(torch.unbind(features, dim=1), dim=0)
+#         if self.contrast_mode == 'one':
+#             anchor_feature = features[:, 0]
+#             anchor_count = 1
+#         elif self.contrast_mode == 'all':
+#             anchor_feature = contrast_feature
+#             anchor_count = contrast_count
+#         else:
+#             raise ValueError('Unknown mode: {}'.format(self.contrast_mode))
+#         # tile mask
+#         # mask = mask.repeat(anchor_count, contrast_count)
+#
+#
+#         # logits_mask = torch.scatter(
+#         #     torch.ones_like(mask),
+#         #     1,
+#         #     torch.arange(batch_size * anchor_count).view(-1, 1).to(device),
+#         #     0
+#         # )
+#         #
+#         #
+#         # ### 计算同一类图片增强后差值的L2范数
+#         # # print(mask[0,:],mask.shape)
+#         # # print(mask[1,:],mask.shape)
+#         #
+#         # num = 0
+#         # # print(mask[0:2,:5])
+#         # mask = mask * logits_mask
+#         # index_mask = mask[:, :] == 1
+#         # # print(index_mask[0:2,:5])
+#         #
+#         # # sum_loss = torch.Tensor([0]).cuda()
+#         # # sum_loss_192 = torch.Tensor([0]).cuda()
+#         # sum_loss_64 = torch.Tensor([0]).cuda()
+#         # # for i in range(len(mask)):
+#         # #     for index_feature in contrast_feature[index_mask[i,:]]:
+#         # #         loss_c_192=torch.sum(torch.norm(contrast_feature[i][:192]-index_feature[:192]))/192
+#         # #         loss_s_64=1-torch.sum(torch.norm(contrast_feature[i][192:]-index_feature[192:]))/64
+#         # #         sum_loss+=loss_c_192+loss_s_64
+#         # #         num+=1
+#         # for i in range(len(mask)):
+#         #     # print("******")
+#         #     # print((contrast_feature[i] - contrast_feature[index_mask[i, :]])[:].shape)
+#         #     num += 1
+#         #     # sum_loss_192 += torch.sum(
+#         #     #     torch.norm((contrast_feature[i][:192] - contrast_feature[index_mask[i, :]][:, :192]), dim=1)) / (
+#         #     #                    len(contrast_feature[i] - contrast_feature[index_mask[i, :]]))
+#         #     sum_loss_64 += torch.sum(
+#         #         torch.norm((contrast_feature[i][192:] - contrast_feature[index_mask[i, :]][:, 192:]), dim=1)) / (
+#         #                        len(contrast_feature[i] - contrast_feature[index_mask[i, :]]))
+#         #     # print(torch.norm(contrast_feature[i] - contrast_feature[index_mask[i, :]]))
+#         #     # loss_c_192=torch.sum(torch.norm(contrast_feature[i]-contrast_feature[index_mask[i,:]]))
+#         #     # print(loss_c_192)
+#         # # sum_loss = sum_loss_192 / sum_loss_64
+#         # # sum_loss_192/=num
+#         # sum_loss_64/=-num
+#         # sum_loss_64*=0.001
+#         # # print(sum_loss_64.data)
+#         # # sum_loss/=num
+#         # # print("sum_loss:", sum_loss)
+#         #
+#         # features_c_192, _= torch.split(contrast_feature, [192, 64], dim=1)
+#         # # print(features_c_192.shape)
+#         # contrast_feature=features_c_192
+#         # anchor_feature=features_c_192
+#         #
+#         # # input()
+#
+#
+#         # ### 不切分 计算同一类图片增强后差值的L2范数
+#         # # print(mask[0,:],mask.shape)
+#         # # print(mask[1,:],mask.shape)
+#         #
+#         # num = 0
+#         # index_mask = mask[:, :] == 1
+#         # sum_loss_256 = torch.Tensor([0]).cuda()
+#         # # for i in range(len(mask)):
+#         # #     for index_feature in contrast_feature[index_mask[i,:]]:
+#         # #         loss_c_192=torch.sum(torch.norm(contrast_feature[i][:192]-index_feature[:192]))/192
+#         # #         loss_s_64=1-torch.sum(torch.norm(contrast_feature[i][192:]-index_feature[192:]))/64
+#         # #         sum_loss+=loss_c_192+loss_s_64
+#         # #         num+=1
+#         # for i in range(len(mask)):
+#         #     num += 1
+#         #     sum_loss_256 += torch.sum(
+#         #         torch.norm((contrast_feature[i][:] - contrast_feature[index_mask[i, :]][:, :]), dim=1)) / (
+#         #                        len(contrast_feature[i] - contrast_feature[index_mask[i, :]]))
+#         #
+#         # sum_loss_256/=num
+#         # # print("sum_loss_256:", sum_loss_256)
+#         #
+#         # # input()
+#
+#         # ### 不切分 同一张图片
+#         # loss_256= torch.sum(torch.norm(features[:, 0, :] - features[:, 1, :], dim=1)) / len(
+#         #     torch.norm(features[:, 0, :] - features[:, 1, :], dim=1))
+#
+#
+#
+#         # compute logits
+#         anchor_dot_contrast = torch.div(
+#             torch.matmul(anchor_feature, contrast_feature.T),
+#             self.temperature)
+#         # print(contrast_feature.shape)
+#         # print(anchor_feature.shape)
+#         # for numerical stability
+#         logits_max, _ = torch.max(anchor_dot_contrast, dim=1, keepdim=True)
+#         logits = anchor_dot_contrast - logits_max.detach()
+#
+#         # tile mask
+#         mask = mask.repeat(anchor_count, contrast_count)
+#         print(mask[0][0],mask[0,90:100])
+#         # mask-out self-contrast cases
+#         logits_mask = torch.scatter(
+#             torch.ones_like(mask),
+#             1,
+#             torch.arange(batch_size * anchor_count).view(-1, 1).to(device),
+#             0
+#         )
+#         mask = mask * logits_mask
+#         print(mask[0][0], mask[0, 90:100])
+#
+#
+#         # compute log_prob
+#         exp_logits = torch.exp(logits) * logits_mask
+#         log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
+#
+#         # compute mean of log-likelihood over positive
+#         mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
+#
+#         # loss
+#         loss = - (self.temperature / self.base_temperature) * mean_log_prob_pos
+#         loss = loss.view(anchor_count, batch_size).mean()
+#
+#         # return loss+sum_loss
+#
+#
+#         # return loss+loss_c_s
+#         # print("loss_s_64,loss_c_192",loss_s_64,loss_c_192)
+#         # return loss+loss_s_64+loss_c_192
+#
+#         # return loss+sum_loss_128
+#         # return loss+sum_loss_192+sum_loss_64
+#         # return loss
+#         # print(loss.data,loss_256.data)
+#         # print(loss.data,sum_loss_64.data)
+#         print(loss.data,loss_s_64.data)
+#         return loss+loss_s_64
+#
+
+
+"""
+Author: Yonglong Tian (yonglong@mit.edu)
+Date: May 07, 2020
+"""
+from __future__ import print_function
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+class SupConLoss(nn.Module):
+    """Supervised Contrastive Learning: https://arxiv.org/pdf/2004.11362.pdf.
+    It also supports the unsupervised contrastive loss in SimCLR"""
+
+    def __init__(self, temperature=0.07, contrast_mode='all',
+                 base_temperature=0.07):
+        super(SupConLoss, self).__init__()
+        self.temperature = temperature
+        self.contrast_mode = contrast_mode
+        self.base_temperature = base_temperature
+
+    def forward(self, features,labels=None, mask=None, ):
+        """Compute loss for model. If both `labels` and `mask` are None,
+        it degenerates to SimCLR unsupervised loss:
+        https://arxiv.org/pdf/2002.05709.pdf
+
+        Args:
+            features: hidden vector of shape [bsz, n_views, ...].
+            labels: ground truth of shape [bsz].
+            mask: contrastive mask of shape [bsz, bsz], mask_{i,j}=1 if sample j
+                has the same class as sample i. Can be asymmetric.
+        Returns:
+            A loss scalar.
+        """
+        device = (torch.device('cuda')
+                  if features.is_cuda
+                  else torch.device('cpu'))
+
+        if len(features.shape) < 3:
+            raise ValueError('`features` needs to be [bsz, n_views, ...],'
+                             'at least 3 dimensions are required')
+        if len(features.shape) > 3:
+            features = features.view(features.shape[0], features.shape[1], -1)
+
+        batch_size = features.shape[0]
+        if labels is not None and mask is not None:
+            raise ValueError('Cannot define both `labels` and `mask`')
+        elif labels is None and mask is None:
+            mask = torch.eye(batch_size, dtype=torch.float64).to(device)
+        elif labels is not None:
+            labels = labels.contiguous().view(-1, 1)
+            if labels.shape[0] != batch_size:
+                raise ValueError('Num of labels does not match num of features')
+            mask = torch.eq(labels, labels.T).float().to(device)
+        else:
+            mask = mask.float().to(device)
+
+        contrast_count = features.shape[1]
+        contrast_feature = torch.cat(torch.unbind(features, dim=1), dim=0)
+        if self.contrast_mode == 'one':
+            anchor_feature = features[:, 0]
+            anchor_count = 1
+        elif self.contrast_mode == 'all':
+            anchor_feature = contrast_feature
+            anchor_count = contrast_count
+        else:
+            raise ValueError('Unknown mode: {}'.format(self.contrast_mode))
+
+        # tile mask
+        mask = mask.repeat(anchor_count, contrast_count)
+        # mask-out self-contrast cases
+        logits_mask = torch.scatter(
+            torch.ones_like(mask),
+            1,
+            torch.arange(batch_size * anchor_count).view(-1, 1).to(device),
+            0
+        )
+        mask = mask * logits_mask
+
+        ### 计算同一类图片增强后差值的L2范数
+        # print(mask[0,:],mask.shape)
+        # print(mask[1,:],mask.shape)
+
+        num = 0
+        # print(mask[0:2,:5])
+        mask = mask * logits_mask
+        index_mask = mask[:, :] == 1
+        # print(index_mask[0:2,:5])
+
+        # sum_loss = torch.Tensor([0]).cuda()
+        # sum_loss_192 = torch.Tensor([0]).cuda()
+        sum_loss_64 = torch.Tensor([0]).cuda()
+        sum_loss_box=[]
+        sum_part_loss_64 = torch.Tensor([0]).cuda()
+        # div=torch.Tensor([0]).cuda()
+        # for i in range(len(mask)):
+        #     for index_feature in contrast_feature[index_mask[i,:]]:
+        #         loss_c_192=torch.sum(torch.norm(contrast_feature[i][:192]-index_feature[:192]))/192
+        #         loss_s_64=1-torch.sum(torch.norm(contrast_feature[i][192:]-index_feature[192:]))/64
+        #         sum_loss+=loss_c_192+loss_s_64
+        #         num+=1
+        for i in range(len(mask)):
+            # print("******")
+            # print((contrast_feature[i] - contrast_feature[index_mask[i, :]])[:].shape)
+            num += 1
+            # sum_loss_192 += torch.sum(
+            #     torch.norm((contrast_feature[i][:192] - contrast_feature[index_mask[i, :]][:, :192]), dim=1)) / (
+            #                    len(contrast_feature[i] - contrast_feature[index_mask[i, :]]))
+            sum_part_loss_64 = torch.sum(
+                torch.norm((contrast_feature[i][192:] - contrast_feature[index_mask[i, :]][:, 192:]), dim=1)) / (
+                                   len(contrast_feature[index_mask[i, :]]))
+            sum_loss_64+=sum_part_loss_64
+            sum_loss_box.append(sum_part_loss_64)
+
+
+
+            # c_192=F.normalize(torch.cat((contrast_feature[i:i + 1, :192], contrast_feature[index_mask[i, :]][:, :192]),dim=0),dim=1)
+            # s_64=F.normalize(torch.cat((contrast_feature[i:i+1,192:],contrast_feature[index_mask[i,:]][:,192:]),dim=0).repeat(1,3),dim=1)
+            #
+            # # print(torch.sum(torch.norm(c_192-s_64,dim=1))/len(torch.norm(c_192-s_64,dim=1)))
+            # div+=torch.sum(torch.norm(c_192-s_64,dim=1))/len(torch.norm(c_192-s_64,dim=1))
+            # div+=torch.sum(torch.norm(,dim=0))-,dim=0).repeat(1,3)))/(len(contrast_feature[index_mask[i, :]])+1)
+            # print(div)
+
+            # print(torch.norm(contrast_feature[i] - contrast_feature[index_mask[i, :]]))
+            # loss_c_192=torch.sum(torch.norm(contrast_feature[i]-contrast_feature[index_mask[i,:]]))
+            # print(loss_c_192)
+        # sum_loss = sum_loss_192 / sum_loss_64
+        # sum_loss_192/=num
+        # sum_loss_64/=-num
+        sum_loss_box.sort()
+        # print(sum_loss_box)
+        lam_box=torch.arange(-0.0054,-0.015,-0.00005)
+        # print(lam_box)
+        for i in range(len(sum_loss_box)):
+            sum_loss_box[i]*=lam_box[i]
+        # print(sum_loss_box)
+        print(sum(sum_loss_box))
+
+
+
+        sum_loss_64 = -0.01 * sum_loss_64
+        print(sum_loss_64)
+
+        # div/=-num
+        # div*=0.1
+        # print(div)
+        # print(sum_loss_64.data)
+        # sum_loss/=num
+        # print("sum_loss:", sum_loss)
+
+        features_c_192, _ = torch.split(contrast_feature, [192, 64], dim=1)
+        # print(features_c_192.shape)
+        contrast_feature = features_c_192
+        anchor_feature = features_c_192
+
+        # input()
+
+        # compute logits
+        anchor_dot_contrast = torch.div(
+            torch.matmul(anchor_feature, contrast_feature.T),
+            self.temperature)
+        # print(contrast_feature.shape)
+        # print(anchor_feature.shape)
+        # for numerical stability
+        logits_max, _ = torch.max(anchor_dot_contrast, dim=1, keepdim=True)
+        logits = anchor_dot_contrast - logits_max.detach()
+        # print(mask)
+        # print(mask.shape)
+        # ### 不同类数据 分母
+        # temp_pre=torch.zeros_like(mask)
+        # temp_index=mask[:,:]==0
+        # temp_pre[temp_index]=1
+        # temp_pre*=logits_mask
+        # # print(torch.ones_like(mask)[mask[:,:]==0])
+        # # print(torch.ones_like(mask)[mask[:,:]==0].shape)
+        # # print("***")
+
+        # compute log_prob
+        exp_logits = torch.exp(logits) * logits_mask
+        # exp_logits=torch.exp(logits)*temp_pre
+        log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
+
+        # compute mean of log-likelihood over positive
+        mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
+
+        # loss
+        loss = - (self.temperature / self.base_temperature) * mean_log_prob_pos
+        loss = loss.view(anchor_count, batch_size).mean()
+
+        print(loss.data, sum_loss_64.data)
+        print("***",loss)
+        print("***",sum_loss_64)
+
+        return loss+sum_loss_64
+
+### 同一张图片的损失
+#
+# """
+# Author: Yonglong Tian (yonglong@mit.edu)
+# Date: May 07, 2020
+# """
+# from __future__ import print_function
+#
+# import torch
+# import torch.nn as nn
+# import torch.nn.functional as F
+#
+#
+# class SupConLoss(nn.Module):
+#     """Supervised Contrastive Learning: https://arxiv.org/pdf/2004.11362.pdf.
+#     It also supports the unsupervised contrastive loss in SimCLR"""
+#     def __init__(self, temperature=0.07, contrast_mode='all',
+#                  base_temperature=0.07):
+#         super(SupConLoss, self).__init__()
+#         self.temperature = temperature
+#         self.contrast_mode = contrast_mode
+#         self.base_temperature = base_temperature
+#
+#     def forward(self, features, labels=None, mask=None):
+#         """Compute loss for model. If both `labels` and `mask` are None,
+#         it degenerates to SimCLR unsupervised loss:
+#         https://arxiv.org/pdf/2002.05709.pdf
+#
+#         Args:
+#             features: hidden vector of shape [bsz, n_views, ...].
+#             labels: ground truth of shape [bsz].
+#             mask: contrastive mask of shape [bsz, bsz], mask_{i,j}=1 if sample j
+#                 has the same class as sample i. Can be asymmetric.
+#         Returns:
+#             A loss scalar.
+#         """
+#         device = (torch.device('cuda')
+#                   if features.is_cuda
+#                   else torch.device('cpu'))
+#
+#         if len(features.shape) < 3:
+#             raise ValueError('`features` needs to be [bsz, n_views, ...],'
+#                              'at least 3 dimensions are required')
+#         if len(features.shape) > 3:
+#             features = features.view(features.shape[0], features.shape[1], -1)
+#
+#         batch_size = features.shape[0]
+#         if labels is not None and mask is not None:
+#             raise ValueError('Cannot define both `labels` and `mask`')
+#         elif labels is None and mask is None:
+#             mask = torch.eye(batch_size, dtype=torch.float64).to(device)
+#         elif labels is not None:
+#             labels = labels.contiguous().view(-1, 1)
+#             if labels.shape[0] != batch_size:
+#                 raise ValueError('Num of labels does not match num of features')
+#             mask = torch.eq(labels, labels.T).float().to(device)
+#         else:
+#             mask = mask.float().to(device)
+#
+#         ### 计算同一张图片增强后差值向量的l2范数
+#         # print(features.shape)
+#         # print(features)
+#         features_c_192,features_s_64=torch.split(features,[192,64],dim=2)
+#
+#
+#         temp=-torch.sum(torch.norm((features[:,:,:192]-features[:,:,192:].repeat(1,1,3)),dim=1))/(batch_size*2)
+#         temp*=0.007
+#
+#         # print(features_c_192[:,0,:]-features_c_192[:,1,:])
+#         # print(torch.norm(features_c_192[:, 0, :] - features_c_192[:, 1, :],dim=1))
+#         # print(torch.sum(torch.norm(features_c_192[:, 0, :] - features_c_192[:, 1, :],dim=1))/len(torch.norm(features_c_192[:, 0, :] - features_c_192[:, 1, :],dim=1)))
+#         # loss_c_192=torch.sum(torch.norm(features_c_192[:, 0, :] - features_c_192[:, 1, :],dim=1))/len(torch.norm(features_c_192[:, 0, :] - features_c_192[:, 1, :],dim=1))
+#         # print(loss_c_192)
+#         loss_s_64=-torch.sum(torch.norm(features_s_64[:, 0, :] - features_s_64[:, 1, :],dim=1))/len(torch.norm(features_s_64[:, 0, :] - features_s_64[:, 1, :],dim=1))
+#         loss_s_64*=0.007
+#         # print(loss_c_192,loss_s_64)
+#         # print(loss_s_64)
+#         # print("***",torch.norm(features_s_64[:,0,:]))
+#         # loss_c_s=loss_c_192/loss_s_64
+#         # print("###",loss_c_s)
+#         # print(features_c_192.shape)
+#
+#         ###k
+#         ### 仅对公共部分计算SCL
+#         features=features_c_192
+#
+#         # print(features.shape)
+#         # input()
+#
+#         # torch.norm()
+#         # print(features_c_192,features_s_64)
+#         # print(features_c_192.shape,features_s_64.shape)
+#         # input()
+#
+#
+#
+#
+#         contrast_count = features.shape[1]
+#         contrast_feature = torch.cat(torch.unbind(features, dim=1), dim=0)
+#         if self.contrast_mode == 'one':
+#             anchor_feature = features[:, 0]
+#             anchor_count = 1
+#         elif self.contrast_mode == 'all':
+#             anchor_feature = contrast_feature
+#             anchor_count = contrast_count
+#         else:
+#             raise ValueError('Unknown mode: {}'.format(self.contrast_mode))
+#
+#
+#
+#         # compute logits
+#         anchor_dot_contrast = torch.div(
+#             torch.matmul(anchor_feature, contrast_feature.T),
+#             self.temperature)
+#         # print(contrast_feature.shape)
+#         # print(anchor_feature.shape)
+#         # for numerical stability
+#         logits_max, _ = torch.max(anchor_dot_contrast, dim=1, keepdim=True)
+#         logits = anchor_dot_contrast - logits_max.detach()
+#
+#         # tile mask
+#         mask = mask.repeat(anchor_count, contrast_count)
+#         # mask-out self-contrast cases
+#         logits_mask = torch.scatter(
+#             torch.ones_like(mask),
+#             1,
+#             torch.arange(batch_size * anchor_count).view(-1, 1).to(device),
+#             0
+#         )
+#         mask = mask * logits_mask
+#
+#
+#         # compute log_prob
+#         exp_logits = torch.exp(logits) * logits_mask
+#         log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
+#
+#         # compute mean of log-likelihood over positive
+#         mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
+#
+#         # loss
+#         loss = - (self.temperature / self.base_temperature) * mean_log_prob_pos
+#         loss = loss.view(anchor_count, batch_size).mean()
+#
+#         # return loss+sum_loss
+#         print(loss.data,loss_s_64.data,temp.data)
+#         return loss+loss_s_64+temp
