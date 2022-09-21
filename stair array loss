@@ -391,7 +391,7 @@ class SupConLoss(nn.Module):
         # sum_loss = sum_loss_192 / sum_loss_64
         # sum_loss_192/=num
         # sum_loss_64/=-num
-        sum_loss_box.sort()
+        sum_loss_box.sort(reverse=True)
         # print(sum_loss_box)
         lam_box=torch.arange(-0.0054,-0.015,-0.00005)
         # print(lam_box)
